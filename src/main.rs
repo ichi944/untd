@@ -1,6 +1,36 @@
 use chrono::{TimeZone, Utc};
 use clap::Parser;
 
+/// Determines the datetime format string based on the format option
+fn get_format_string(format_option: Option<&str>) -> &str {
+    match format_option {
+        None => "%Y-%m-%d",                   // Default: date only
+        Some("iso") => "%Y-%m-%dT%H:%M:%S%z", // ISO8601
+        Some(fmt) => fmt,                     // Custom format
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_format_string() {
+        // Test default format (None)
+        assert_eq!(get_format_string(None), "%Y-%m-%d");
+
+        // Test ISO format
+        assert_eq!(get_format_string(Some("iso")), "%Y-%m-%dT%H:%M:%S%z");
+
+        // Test custom format
+        assert_eq!(get_format_string(Some("%H:%M:%S")), "%H:%M:%S");
+        assert_eq!(
+            get_format_string(Some("Custom: %Y/%m/%d")),
+            "Custom: %Y/%m/%d"
+        );
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "untd")]
 struct Args {
@@ -41,11 +71,7 @@ fn main() {
     };
     let specific_datetime = datetime.with_timezone(&tz);
 
-    let format_str = match args.format.as_deref() {
-        None => "%Y-%m-%d",                   // Default: date only
-        Some("iso") => "%Y-%m-%dT%H:%M:%S%z", // ISO8601
-        Some(fmt) => fmt,                     // Custom format
-    };
+    let format_str = get_format_string(args.format.as_deref());
 
     let output = specific_datetime.format(format_str).to_string();
     println!("{}", output);

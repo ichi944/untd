@@ -69,6 +69,90 @@ mod tests {
         assert_eq!(get_japanese_weekday('6'), "土");
         assert_eq!(get_japanese_weekday('9'), "?");
     }
+
+    #[test]
+    fn test_parse_time_adjustment() {
+        use chrono::Duration;
+
+        // Test positive adjustments
+        assert_eq!(parse_time_adjustment("30s").unwrap(), Duration::seconds(30));
+        assert_eq!(parse_time_adjustment("5m").unwrap(), Duration::minutes(5));
+        assert_eq!(parse_time_adjustment("2h").unwrap(), Duration::hours(2));
+        assert_eq!(parse_time_adjustment("1d").unwrap(), Duration::days(1));
+        assert_eq!(parse_time_adjustment("3w").unwrap(), Duration::weeks(3));
+
+        // Test with explicit plus sign
+        assert_eq!(
+            parse_time_adjustment("+45s").unwrap(),
+            Duration::seconds(45)
+        );
+        assert_eq!(
+            parse_time_adjustment("+10m").unwrap(),
+            Duration::minutes(10)
+        );
+
+        // Test negative adjustments
+        assert_eq!(
+            parse_time_adjustment("-15s").unwrap(),
+            Duration::seconds(-15)
+        );
+        assert_eq!(parse_time_adjustment("-3m").unwrap(), Duration::minutes(-3));
+        assert_eq!(parse_time_adjustment("-1h").unwrap(), Duration::hours(-1));
+        assert_eq!(parse_time_adjustment("-2d").unwrap(), Duration::days(-2));
+        assert_eq!(parse_time_adjustment("-1w").unwrap(), Duration::weeks(-1));
+
+        // Test error cases
+        assert!(parse_time_adjustment("").is_err()); // Empty string
+        assert!(parse_time_adjustment("s").is_err()); // Missing numeric part
+        assert!(parse_time_adjustment("10").is_err()); // Missing unit
+        assert!(parse_time_adjustment("10x").is_err()); // Invalid unit
+    }
+}
+
+/// Parse a time adjustment string like "1m", "-30s", "2d"
+fn parse_time_adjustment(adj: &str) -> Result<chrono::Duration, String> {
+    if adj.is_empty() {
+        return Err("Empty time adjustment string".to_string());
+    }
+
+    // Check if it's a negative adjustment
+    let (is_negative, adj_str) = if adj.starts_with('-') {
+        (true, &adj[1..])
+    } else if adj.starts_with('+') {
+        (false, &adj[1..])
+    } else {
+        (false, adj)
+    };
+
+    // Parse the numeric part and unit
+    let mut numeric_part = String::new();
+    let mut unit_part = String::new();
+
+    for c in adj_str.chars() {
+        if c.is_digit(10) {
+            numeric_part.push(c);
+        } else {
+            unit_part.push(c);
+        }
+    }
+
+    if numeric_part.is_empty() {
+        return Err(format!("Missing numeric part in '{}'", adj));
+    }
+
+    let value: i64 = numeric_part
+        .parse()
+        .map_err(|e| format!("Invalid number: {}", e))?;
+    let value = if is_negative { -value } else { value };
+
+    match unit_part.as_str() {
+        "s" => Ok(chrono::Duration::seconds(value)),
+        "m" => Ok(chrono::Duration::minutes(value)),
+        "h" => Ok(chrono::Duration::hours(value)),
+        "d" => Ok(chrono::Duration::days(value)),
+        "w" => Ok(chrono::Duration::weeks(value)),
+        _ => Err(format!("Unknown time unit '{}'. Use s (seconds), m (minutes), h (hours), d (days), or w (weeks)", unit_part)),
+    }
 }
 
 #[derive(Parser)]
@@ -84,12 +168,16 @@ struct Args {
     /// Output format (default: date only, "iso": ISO8601, "jp": Japanese date, "jpwd": Japanese date with weekday, "jphm": Japanese date with time, "jphms": Japanese date with time and seconds)
     #[arg(short = 'f', long = "format")]
     format: Option<String>,
+    /// Adjust time (e.g., "1m" adds 1 minute, "-30s" subtracts 30 seconds, "2d" adds 2 days)
+    /// Supported units: s (seconds), m (minutes), h (hours), d (days), w (weeks)
+    #[arg(short = 'a', long = "adjust")]
+    adjust: Option<String>,
 }
 
 fn main() {
     let args: Args = Args::parse();
 
-    let datetime = if let Some(dt) = args.timestamp {
+    let mut datetime = if let Some(dt) = args.timestamp {
         match Utc.timestamp_opt(dt, 0) {
             chrono::LocalResult::Single(dt) => dt,
             _ => {
@@ -100,6 +188,19 @@ fn main() {
     } else {
         Utc::now()
     };
+
+    // Apply time adjustment if specified
+    if let Some(adj_str) = &args.adjust {
+        match parse_time_adjustment(adj_str) {
+            Ok(duration) => {
+                datetime = datetime + duration;
+            }
+            Err(e) => {
+                println!("Error in time adjustment: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
 
     let tz = match args.timezone.as_str() {
         "UTC" => chrono_tz::UTC,

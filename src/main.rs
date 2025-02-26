@@ -6,7 +6,10 @@ fn get_format_string(format_option: Option<&str>) -> &str {
     match format_option {
         None => "%Y-%m-%d",                   // Default: date only
         Some("iso") => "%Y-%m-%dT%H:%M:%S%z", // ISO8601
-        Some(fmt) => fmt,                     // Custom format
+        Some("jp") => "%Y年%m月%d日",
+        Some("jphm") => "%Y年%m月%d日 %H時%M分",
+        Some("jphms") => "%Y年%m月%d日 %H時%M分%S秒",
+        Some(fmt) => fmt, // Custom format
     }
 }
 

@@ -107,6 +107,27 @@ mod tests {
         assert!(parse_time_adjustment("10").is_err()); // Missing unit
         assert!(parse_time_adjustment("10x").is_err()); // Invalid unit
     }
+
+    #[test]
+    fn test_format_datetime() {
+        use chrono::{TimeZone, Utc};
+
+        // Create a fixed datetime for testing
+        let dt = Utc.with_ymd_and_hms(2025, 3, 1, 12, 0, 0).unwrap();
+        let tz_dt = dt.with_timezone(&chrono_tz::Asia::Tokyo);
+
+        // Test default format
+        assert_eq!(format_datetime(tz_dt, None), "2025-03-01");
+
+        // Test ISO format
+        assert_eq!(
+            format_datetime(tz_dt, Some("iso")),
+            "2025-03-01T21:00:00+0900"
+        );
+
+        // Test Japanese format
+        assert_eq!(format_datetime(tz_dt, Some("jp")), "2025年03月01日");
+    }
 }
 
 /// Parse a time adjustment string like "1m", "-30s", "2d"
@@ -172,6 +193,44 @@ struct Args {
     /// Supported units: s (seconds), m (minutes), h (hours), d (days), w (weeks)
     #[arg(short = 'a', long = "adjust")]
     adjust: Option<String>,
+    /// Show a range of dates (e.g., "3" shows today and the next 2 days)
+    #[arg(short = 'r', long = "range")]
+    range: Option<u32>,
+}
+
+/// Format a datetime with the given format string and handle special formats
+fn format_datetime(
+    datetime: chrono::DateTime<chrono_tz::Tz>,
+    format_option: Option<&str>,
+) -> String {
+    let format_str = get_format_string(format_option);
+    let formatted = datetime.format(format_str).to_string();
+
+    // Special handling for Japanese weekday format
+    if format_option == Some("jpwd") {
+        // Replace the %w placeholder with the Japanese weekday character
+        formatted
+            .chars()
+            .enumerate()
+            .fold(String::new(), |mut result, (i, c)| {
+                if i > 0
+                    && formatted.chars().nth(i - 1) == Some('(')
+                    && c.is_digit(10)
+                    && i + 1 < formatted.len()
+                    && formatted.chars().nth(i + 1) == Some(')')
+                {
+                    result.push_str(get_japanese_weekday(c));
+                } else if !(i > 0
+                    && formatted.chars().nth(i - 1) == Some('(')
+                    && formatted.chars().nth(i) == Some(')'))
+                {
+                    result.push(c);
+                }
+                result
+            })
+    } else {
+        formatted
+    }
 }
 
 fn main() {
@@ -210,47 +269,38 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let specific_datetime = datetime.with_timezone(&tz);
 
-    let format_str = get_format_string(args.format.as_deref());
+    // Handle range option
+    let range = args.range.unwrap_or(1);
+    let mut outputs = Vec::with_capacity(range as usize);
 
-    let formatted = specific_datetime.format(format_str).to_string();
+    for day_offset in 0..range {
+        // Add days to the base datetime for each day in the range
+        let day_datetime = if day_offset > 0 {
+            datetime + chrono::Duration::days(day_offset as i64)
+        } else {
+            datetime
+        };
 
-    // Special handling for Japanese weekday format
-    let output = if args.format.as_deref() == Some("jpwd") {
-        // Replace the %w placeholder with the Japanese weekday character
-        formatted
-            .chars()
-            .enumerate()
-            .fold(String::new(), |mut result, (i, c)| {
-                if i > 0
-                    && formatted.chars().nth(i - 1) == Some('(')
-                    && c.is_digit(10)
-                    && i + 1 < formatted.len()
-                    && formatted.chars().nth(i + 1) == Some(')')
-                {
-                    result.push_str(get_japanese_weekday(c));
-                } else if !(i > 0
-                    && formatted.chars().nth(i - 1) == Some('(')
-                    && formatted.chars().nth(i) == Some(')'))
-                {
-                    result.push(c);
-                }
-                result
-            })
-    } else {
-        formatted
-    };
+        let specific_datetime = day_datetime.with_timezone(&tz);
+        let output = format_datetime(specific_datetime, args.format.as_deref());
+        outputs.push(output);
+    }
 
-    println!("{}", output);
+    // Print all outputs
+    for output in &outputs {
+        println!("{}", output);
+    }
 
-    if args.copy {
+    // Copy all dates to clipboard if copy is enabled
+    if args.copy && !outputs.is_empty() {
+        let clipboard_content = outputs.join("\n");
         match arboard::Clipboard::new() {
             Ok(mut clipboard) => {
-                if let Err(e) = clipboard.set_text(&output) {
+                if let Err(e) = clipboard.set_text(&clipboard_content) {
                     eprintln!("Failed to copy to clipboard: {}", e);
                 } else {
-                    println!("Copied to clipboard!");
+                    println!("Copied all dates to clipboard!");
                 }
             }
             Err(e) => eprintln!("Failed to access clipboard: {}", e),

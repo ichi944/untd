@@ -4,8 +4,10 @@ This utility script provides easy interface to getting date time strings in vari
 
 ## Installation
 
-```bash
-cargo install untd
+clone this repository and run
+
+```
+cargo build --release
 ```
 
 ## Usage
